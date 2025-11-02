@@ -68,7 +68,8 @@ sema_down (struct semaphore *sema)
     old_level = intr_disable ();
     while (sema->value == 0)
         {
-            list_push_back (&sema->waiters, &thread_current ()->elem);
+            // aging
+            list_insert_ordered (&sema->waiters, &thread_current ()->elem, thread_priority_cmp, NULL);
             thread_block ();
         }
     sema->value--;
@@ -114,9 +115,15 @@ sema_up (struct semaphore *sema)
 
     old_level = intr_disable ();
     if (!list_empty (&sema->waiters))
+    {
+        list_sort (&sema->waiters, thread_priority_cmp, NULL); // aging
         thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                    struct thread, elem));
+                struct thread, elem));
+    }
     sema->value++;
+
+    test_max_priority (); // aging
+
     intr_set_level (old_level);
 }
 
@@ -317,9 +324,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
     ASSERT (lock_held_by_current_thread (lock));
 
     if (!list_empty (&cond->waiters))
+    {
+        list_sort (&cond->waiters, sema_priority_cmp, NULL); // aging
         sema_up (&list_entry (list_pop_front (&cond->waiters),
-                              struct semaphore_elem, elem)
-                      ->semaphore);
+                struct semaphore_elem, elem)->semaphore);
+    }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -336,4 +345,25 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
     while (!list_empty (&cond->waiters))
         cond_signal (cond, lock);
+}
+
+bool
+sema_priority_cmp (const struct list_elem* e1, const struct list_elem* e2, void* aux UNUSED)
+{
+    struct semaphore_elem* s1 = list_entry (e1, struct semaphore_elem, elem);
+    struct semaphore_elem* s2 = list_entry (e2, struct semaphore_elem, elem);
+
+    if (!s1 || !s2) return false;
+
+    struct list* l1 = &(s1->semaphore.waiters);
+    struct list* l2 = &(s2->semaphore.waiters);
+
+    if (!l1 || !l2) return false;
+
+    struct thread* t1 = list_entry (list_begin (l1), struct thread, elem);
+    struct thread* t2 = list_entry (list_begin (l2), struct thread, elem);
+
+    if (!t1 || !t2) return false;
+
+    return t1->priority > t2->priority;
 }
