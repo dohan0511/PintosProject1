@@ -68,7 +68,7 @@ sema_down (struct semaphore *sema)
     old_level = intr_disable ();
     while (sema->value == 0)
         {
-            // aging
+            // sema, condvar
             list_insert_ordered (&sema->waiters, &thread_current ()->elem, thread_priority_cmp, NULL);
             thread_block ();
         }
@@ -116,13 +116,13 @@ sema_up (struct semaphore *sema)
     old_level = intr_disable ();
     if (!list_empty (&sema->waiters))
     {
-        list_sort (&sema->waiters, thread_priority_cmp, NULL); // aging
+        list_sort (&sema->waiters, thread_priority_cmp, NULL); // sema, condvar
         thread_unblock (list_entry (list_pop_front (&sema->waiters),
                 struct thread, elem));
     }
     sema->value++;
 
-    test_max_priority (); // aging
+    test_max_priority (); // sema, condvar
 
     intr_set_level (old_level);
 }
@@ -325,7 +325,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
     if (!list_empty (&cond->waiters))
     {
-        list_sort (&cond->waiters, sema_priority_cmp, NULL); // aging
+        list_sort (&cond->waiters, sema_priority_cmp, NULL); // sema, condvar
         sema_up (&list_entry (list_pop_front (&cond->waiters),
                 struct semaphore_elem, elem)->semaphore);
     }

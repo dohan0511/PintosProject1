@@ -139,6 +139,27 @@ thread_tick (void)
     else
         kernel_ticks++;
 
+    // aging
+    struct list_elem* next;
+    for (struct list_elem* e = list_begin(&ready_list);
+    e != list_end(&ready_list); )
+    {
+        next = list_next(e);
+
+        struct thread* t = list_entry (e, struct thread, elem);
+        t->age++;
+
+        if (t->age >= 20)
+        {
+            t->age = 0;
+            if (t->priority < PRI_DEFAULT) t->priority++;
+            list_remove(e);
+            list_insert_ordered(&ready_list, e, thread_priority_cmp, NULL);
+        }
+
+        e = next;
+    }
+
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
         intr_yield_on_return ();
@@ -254,6 +275,7 @@ thread_unblock (struct thread *t)
 
     old_level = intr_disable ();
     ASSERT (t->status == THREAD_BLOCKED);
+    t->age = 0;
     list_insert_ordered (&ready_list, &t->elem, thread_priority_cmp, NULL); // priority
     t->status = THREAD_READY;
     intr_set_level (old_level);
@@ -382,7 +404,10 @@ thread_yield (void)
 
     old_level = intr_disable ();
     if (cur != idle_thread)
+    {
+        cur->age = 0;
         list_insert_ordered (&ready_list, &cur->elem, thread_priority_cmp, NULL); // priority
+    }
     cur->status = THREAD_READY;
     schedule ();
     intr_set_level (old_level);
